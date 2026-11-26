@@ -270,6 +270,12 @@
       .byline .txt b{font-size:1rem}
       .byline .txt span{display:block;color:var(--ink2);font-size:.88rem}
 
+      /* ---------- 作品内部页面切换：整页淡入 ---------- */
+      section[hidden]{display:none!important}
+      @keyframes wpageIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      .wpage-in{animation:wpageIn .3s ease-out}
+      @media (prefers-reduced-motion: reduce){ .wpage-in{animation:none} }
+
       footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;color:var(--ink2);font-size:.88rem}
     </style>
   </head>
@@ -1791,41 +1797,92 @@
     })();
     </script>
     <script>
-    /* ============ 作品内部子页切换：逐层进入（拳法 → 螳螂拳 → 八步螳螂拳），不平铺 ============ */
+    /* ============ 页面切换：平台层保持原有锚点长页；作品内部是独立页面视图（哈希路由） ============
+       作品内 7 页（作品首页 / 拳法 / 螳螂拳 / 八步螳螂拳 / 肌肉图鉴 / 功能补丁 / 致谢）任意时刻只显示当前一页，
+       平台层区块与其它作品页全部隐藏；每页有自己的哈希，导航/卡片进入、返回上一层、浏览器前进后退都能切换；
+       切换后即时回到新页面顶部（不用平滑滚动，避免「被拖到长图某处」的感觉），并带轻微整页淡入。 */
     (function(){
-      var PAGES = ["work-anatomy","quan-fa","mantis","babu","model","patch","thanks"];
-      function isPage(id){ return PAGES.indexOf(id) >= 0; }
-      function showPage(id, scroll){
-        if (!isPage(id)) id = "work-anatomy";
-        PAGES.forEach(function(p){
+      var WORK = ["work-anatomy","quan-fa","mantis","babu","model","patch","thanks"];
+      var INNER = { lesson1:"babu", detail:"model" }; /* 作品页内部锚点 → 所属作品页 */
+      var platformBlocks = [];
+      var hero = document.querySelector("header.hero");
+      if (hero) platformBlocks.push(hero);
+      var intro = document.querySelector('section[aria-label="平台介绍"]');
+      if (intro) platformBlocks.push(intro);
+      ["community","my-learning"].forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) platformBlocks.push(el);
+      });
+      var mode = null; /* "platform" | "work" */
+
+      function isWork(id){ return WORK.indexOf(id) >= 0; }
+      function scrollTopNow(){
+        var de = document.documentElement, prev = de.style.scrollBehavior;
+        de.style.scrollBehavior = "auto";
+        window.scrollTo(0, 0);
+        de.style.scrollBehavior = prev;
+      }
+      function fadeIn(el){
+        el.classList.remove("wpage-in");
+        void el.offsetWidth;
+        el.classList.add("wpage-in");
+      }
+      function enterWork(id, innerId){
+        mode = "work";
+        platformBlocks.forEach(function(el){ el.hidden = true; });
+        WORK.forEach(function(p){
           var el = document.getElementById(p);
           if (el) el.hidden = (p !== id);
         });
-        if (id === "model" && typeof onResize3D === "function") onResize3D();
-        if (scroll){
-          var t = document.getElementById(id);
-          if (t) t.scrollIntoView({block:"start"});
+        var page = document.getElementById(id);
+        if (page) fadeIn(page);
+        if (id === "model" && typeof onResize3D === "function"){
+          if (window.requestAnimationFrame) requestAnimationFrame(function(){ onResize3D(); });
+          else onResize3D();
+        }
+        if (innerId){
+          var t = document.getElementById(innerId);
+          if (t){ t.scrollIntoView(); return; }
+        }
+        scrollTopNow();
+      }
+      function enterPlatform(anchorId){
+        var wasWork = (mode === "work");
+        mode = "platform";
+        platformBlocks.forEach(function(el){ el.hidden = false; });
+        WORK.forEach(function(p){
+          var el = document.getElementById(p);
+          if (el) el.hidden = true;
+        });
+        /* 从作品页返回平台层时才主动定位；平台层内部的锚点跳转保持浏览器原有行为不动 */
+        if (wasWork){
+          var t = anchorId ? document.getElementById(anchorId) : null;
+          if (t) t.scrollIntoView();
+          else scrollTopNow();
         }
       }
-      document.addEventListener("click", function(e){
-        var a = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
-        if (!a) return;
-        var id = a.getAttribute("href").slice(1);
-        if (!isPage(id)) return;
-        e.preventDefault();
-        showPage(id, true);
-        if (history.replaceState) history.replaceState(null, "", "#" + id);
-      });
+      function route(){
+        var raw = (location.hash || "").slice(1);
+        var target = INNER[raw] || raw;
+        if (isWork(target)) enterWork(target, raw !== target ? raw : null);
+        else enterPlatform(raw || null);
+      }
+      /* 供站内脚本同步调用：先切页、再改哈希，保证随后的滚动定位落在已显示的页面上 */
+      function goWork(id){
+        if (!isWork(id)) return;
+        enterWork(id, null);
+        if (location.hash !== "#" + id && history.pushState) history.pushState(null, "", "#" + id);
+      }
+      window.addEventListener("hashchange", route);
       /* 动作卡里点肌肉名或「在基础模型中高亮」时，先切到肌肉图鉴页，详情才滚得到 */
       document.addEventListener("click", function(e){
         var t = e.target;
         if (!t || !t.closest) return;
         if (t.closest(".model-jump") || t.closest("#moveGrid [data-mid]") || t.closest("#lessonMoveGrid [data-mid]")){
-          showPage("model", false);
+          goWork("model");
         }
       }, true);
-      var h = (location.hash || "").slice(1);
-      showPage(isPage(h) ? h : "work-anatomy", false);
+      route();
     })();
     </script>
   </body>
